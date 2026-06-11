@@ -10,6 +10,7 @@
 | `player.png` | 48 x 64 | 발끝 (아래 중앙) | 플레이어 캐릭터 |
 | `table.png` | 96 x 64 | 중앙 | 손님 테이블 |
 | `station.png` | 110 x 70 | 중앙 | 주방 조리대 (메뉴 수가 많으면 가로로 약간 압축됨) |
+| `trash.png` | 40 x 48 | 중앙 | 쓰레기통 |
 | `food_eomuk.png` | 36 x 24 | 중앙 | 어묵 |
 | `food_gimbap.png` | 36 x 24 | 중앙 | 김밥 |
 | `food_tteok.png` | 36 x 24 | 중앙 | 떡볶이 |

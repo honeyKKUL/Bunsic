@@ -13,12 +13,12 @@ const GAME = {
 // shape: 스프라이트가 없을 때 기본 그래픽 모양 (bowl / noodle / roll / skewer / sundae / plate)
 // 스프라이트 파일명: assets/sprites/food_<id>.png
 const MENUS = [
-  { id: 'eomuk',    name: '어묵',   price: 2000, cookMs: 1800, cost: 0,     shape: 'skewer', c1: '#0F6E56', c2: '#5DCAA5' },
-  { id: 'gimbap',   name: '김밥',   price: 3000, cookMs: 2500, cost: 0,     shape: 'roll',   c1: '#3B6D11', c2: '#97C459' },
-  { id: 'tteok',    name: '떡볶이', price: 4500, cookMs: 3200, cost: 12000, shape: 'bowl',   c1: '#D85A30', c2: '#F0997B' },
-  { id: 'ramyeon',  name: '라면',   price: 5000, cookMs: 4200, cost: 22000, shape: 'noodle', c1: '#BA7517', c2: '#FAC775' },
-  { id: 'sundae',   name: '순대',   price: 6500, cookMs: 3800, cost: 40000, shape: 'sundae', c1: '#444441', c2: '#888780' },
-  { id: 'donkatsu', name: '돈까스', price: 9000, cookMs: 5400, cost: 70000, shape: 'plate',  c1: '#993C1D', c2: '#F0997B' }
+  { id: 'eomuk',    name: '어묵',   price: 2000, cookMs: 900, cost: 0,     shape: 'skewer', c1: '#0F6E56', c2: '#5DCAA5' },
+  { id: 'gimbap',   name: '김밥',   price: 3000, cookMs: 1250, cost: 0,     shape: 'roll',   c1: '#3B6D11', c2: '#97C459' },
+  { id: 'tteok',    name: '떡볶이', price: 4500, cookMs: 1600, cost: 12000, shape: 'bowl',   c1: '#D85A30', c2: '#F0997B' },
+  { id: 'ramyeon',  name: '라면',   price: 5000, cookMs: 2100, cost: 22000, shape: 'noodle', c1: '#BA7517', c2: '#FAC775' },
+  { id: 'sundae',   name: '순대',   price: 6500, cookMs: 1900, cost: 40000, shape: 'sundae', c1: '#444441', c2: '#888780' },
+  { id: 'donkatsu', name: '돈까스', price: 9000, cookMs: 2700, cost: 70000, shape: 'plate',  c1: '#993C1D', c2: '#F0997B' }
 ];
 
 // ===== 손님 타입 데이터 (도감) =====

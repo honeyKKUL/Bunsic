@@ -101,7 +101,9 @@ function renderCollection() {
 // ---------- 하루 영업 ----------
 const cv = $('cv');
 const ctx = cv.getContext('2d');
-let D = null;          // 진행 중인 하루의 상태
+const TRASH = { x: 598, y: 414 };   // 쓰레기통 위치
+const MAX_QUEUE = 6;                // 예약 가능한 행동 수
+let D = null;
 let raf = null, last = 0;
 
 function pickCustomerType() {
@@ -127,17 +129,18 @@ function startDay() {
     })),
     tables: [
       { x: 160, y: 230 }, { x: 480, y: 230 },
-      { x: 160, y: 370 }, { x: 480, y: 370 }
+      { x: 160, y: 370 }, { x: 160 + 320, y: 370 }
     ].map(p => ({ x: p.x, y: p.y, cust: null })),
-    player: { x: GAME.W / 2, y: GAME.H - 50, tx: GAME.W / 2, ty: GAME.H - 50, carrying: null, onArrive: null, face: 1 },
+    player: { x: GAME.W / 2, y: GAME.H - 50, tx: GAME.W / 2, ty: GAME.H - 50, carrying: null, task: null, face: 1, moving: false },
+    queue: [],
     money: 0, served: 0, missed: 0,
     timeLeft: GAME.DAY_MS,
     spawnT: 1000,
-    spawnBase: Math.max(1700, 3200 - (save.day - 1) * 120), // 날이 갈수록 손님이 빨리 옴
+    spawnBase: Math.max(1700, 3200 - (save.day - 1) * 120),
     flashes: [],
     newTypes: []
   };
-  setMsg('영업 시작! 화구를 클릭해 조리하고, 완성된 음식을 들고 손님에게 가세요.');
+  setMsg('영업 시작! 클릭한 순서대로 예약됩니다. 빈 바닥을 클릭하면 예약이 모두 취소돼요.');
   $('hud-earn').textContent = '0원';
   showScreen('day');
   last = performance.now();
@@ -160,10 +163,27 @@ function spawnCustomer() {
   table.cust = { type, order, patience: max, max };
 }
 
-function walkTo(x, y, fn) {
+// ---------- 행동 예약 큐 ----------
+// 클릭하면 행동이 큐에 쌓이고, 캐릭터가 순서대로 자동 수행합니다.
+//  - 화구: 가서 조리 시작 → 완성까지 기다림 → 자동으로 들기
+//  - 테이블: 가서 서빙
+//  - 쓰레기통: 가서 들고 있는 음식 버리기
+//  - 빈 바닥: 모든 예약 취소 후 이동 (조리 중인 음식은 계속 익습니다)
+function enqueue(task) {
+  if (D.queue.length >= MAX_QUEUE) { setMsg('예약이 가득 찼어요! (최대 ' + MAX_QUEUE + '개)'); return; }
+  D.queue.push(task);
+}
+
+function taskTarget(task) {
+  if (task.kind === 'station') return { x: task.st.x, y: task.st.y + 58 };
+  if (task.kind === 'table')   return { x: task.tb.x, y: task.tb.y + 52 };
+  if (task.kind === 'trash')   return { x: TRASH.x - 4, y: TRASH.y + 26 };
+  return { x: task.x, y: task.y };
+}
+
+function setWalk(x, y) {
   D.player.tx = Math.max(20, Math.min(GAME.W - 20, x));
   D.player.ty = Math.max(140, Math.min(GAME.H - 25, y));
-  D.player.onArrive = fn;
 }
 
 cv.addEventListener('pointerdown', e => {
@@ -174,29 +194,26 @@ cv.addEventListener('pointerdown', e => {
 
   for (const s of D.stations) {
     if (Math.abs(x - s.x) < s.hw + 6 && Math.abs(y - s.y) < 55) {
-      walkTo(s.x, s.y + 58, () => {
-        if (s.state === 'ready' && !D.player.carrying) {
-          D.player.carrying = s.menu;
-          s.state = 'idle';
-          setMsg(s.menu.name + '을(를) 들었습니다! 주문한 손님에게 가져다주세요.');
-        } else if (s.state === 'ready') {
-          setMsg('이미 음식을 들고 있어요. 먼저 서빙하세요!');
-        } else if (s.state === 'idle') {
-          s.state = 'cooking';
-          s.t = s.menu.cookMs;
-          setMsg(s.menu.name + ' 조리를 시작했습니다.');
-        }
-      });
+      enqueue({ kind: 'station', st: s });
       return;
     }
+  }
+  if (Math.abs(x - TRASH.x) < 32 && Math.abs(y - TRASH.y) < 44) {
+    enqueue({ kind: 'trash' });
+    return;
   }
   for (const t of D.tables) {
     if (Math.abs(x - t.x) < 70 && Math.abs(y - t.y) < 60) {
-      walkTo(t.x, t.y + 52, () => serveAt(t));
+      enqueue({ kind: 'table', tb: t });
       return;
     }
   }
-  walkTo(x, y, null);
+  // 빈 바닥: 예약 전부 취소하고 그 지점으로 이동
+  const hadQueue = D.queue.length > 0 || (D.player.task && D.player.task.kind !== 'move');
+  D.queue = [];
+  D.player.task = { kind: 'move', x, y };
+  setWalk(x, y);
+  if (hadQueue) setMsg('예약을 취소하고 이동합니다.');
 });
 
 function serveAt(table) {
@@ -226,6 +243,50 @@ function serveAt(table) {
   }
 }
 
+// 목적지에 도착했을 때 현재 작업 처리. true를 반환하면 작업 완료.
+function handleArrival(task) {
+  const p = D.player;
+  if (task.kind === 'move') return true;
+
+  if (task.kind === 'trash') {
+    if (p.carrying) {
+      addFlash(TRASH.x, TRASH.y - 50, p.carrying.name + ' 버림', '#888780');
+      setMsg(p.carrying.name + '을(를) 버렸습니다.');
+      p.carrying = null;
+    } else {
+      setMsg('버릴 음식이 없어요.');
+    }
+    return true;
+  }
+
+  if (task.kind === 'table') {
+    serveAt(task.tb);
+    return true;
+  }
+
+  if (task.kind === 'station') {
+    const s = task.st;
+    if (s.state === 'idle' && !task.started) {
+      s.state = 'cooking';
+      s.t = s.menu.cookMs;
+      task.started = true;
+      setMsg(s.menu.name + ' 조리 시작! 완성되면 자동으로 듭니다.');
+    }
+    if (s.state === 'ready') {
+      if (!p.carrying) {
+        p.carrying = s.menu;
+        s.state = 'idle';
+        setMsg(s.menu.name + '을(를) 들었습니다!');
+      } else {
+        setMsg('양손이 꽉 차서 들 수 없어요. (' + p.carrying.name + ' 운반 중)');
+      }
+      return true;
+    }
+    return false; // 조리 중이면 옆에서 대기
+  }
+  return true;
+}
+
 function update(dt) {
   D.timeLeft -= dt;
   D.spawnT -= dt;
@@ -248,7 +309,15 @@ function update(dt) {
       if (s.t <= 0) s.state = 'ready';
     }
   });
+
   const p = D.player;
+  // 다음 예약 꺼내기
+  if (!p.task && D.queue.length) {
+    p.task = D.queue.shift();
+    const tg = taskTarget(p.task);
+    setWalk(tg.x, tg.y);
+  }
+  // 이동
   const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
   if (d > 3) {
     const mv = Math.min(d, GAME.SPEED * dt / 1000);
@@ -258,8 +327,9 @@ function update(dt) {
     p.moving = true;
   } else {
     p.moving = false;
-    if (p.onArrive) { const f = p.onArrive; p.onArrive = null; f(); }
+    if (p.task && handleArrival(p.task)) p.task = null;
   }
+
   D.flashes.forEach(f => { f.t -= dt; f.y -= dt * 0.02; });
   D.flashes = D.flashes.filter(f => f.t > 0);
 
@@ -292,7 +362,7 @@ function drawFoodFB(x, y, m, sc) {
     ctx.fillStyle = m.c1; ctx.beginPath(); ctx.roundRect(-10, -4, 20, 9, 4); ctx.fill();
     ctx.strokeStyle = m.c2; ctx.lineWidth = 1;
     for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 5, -3); ctx.lineTo(i * 5, 4); ctx.stroke(); }
-  } else { // bowl / noodle
+  } else {
     ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, 2, 15, 9, 0, 0, 7); ctx.fill();
     ctx.strokeStyle = '#D3D1C7'; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = m.c1; ctx.beginPath(); ctx.ellipse(0, 0, 11, 6, 0, 0, 7); ctx.fill();
@@ -330,7 +400,6 @@ function drawPersonFB(x, y, bodyC, face, apron, bob) {
   ctx.restore();
 }
 
-// 캐릭터는 (x, y)가 몸 중심, 발끝은 y+16
 function drawCharacter(spriteKey, x, y, bodyC, face, apron, bob) {
   if (Sprites.has(spriteKey)) {
     const h = spriteKey === 'player' ? 64 : 60;
@@ -341,9 +410,44 @@ function drawCharacter(spriteKey, x, y, bodyC, face, apron, bob) {
   }
 }
 
+function drawTrash() {
+  if (Sprites.has('trash')) {
+    Sprites.drawCenter(ctx, 'trash', TRASH.x, TRASH.y - 6, 40, 48);
+    return;
+  }
+  ctx.save(); ctx.translate(TRASH.x, TRASH.y);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath(); ctx.ellipse(0, 14, 16, 5, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#5F5E5A';
+  ctx.beginPath(); ctx.roundRect(-13, -22, 26, 34, 5); ctx.fill();
+  ctx.fillStyle = '#444441';
+  ctx.beginPath(); ctx.roundRect(-16, -28, 32, 8, 4); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
+  for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 7, -16); ctx.lineTo(i * 7, 6); ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle = '#5F5E5A'; ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('쓰레기통', TRASH.x, TRASH.y + 32);
+}
+
+function drawQueueBadges() {
+  const tasks = [];
+  if (D.player.task && D.player.task.kind !== 'move') tasks.push(D.player.task);
+  D.queue.forEach(t => tasks.push(t));
+  tasks.forEach((task, i) => {
+    let bx, by;
+    if (task.kind === 'station') { bx = task.st.x + task.st.hw - 8; by = task.st.y - 26; }
+    else if (task.kind === 'table') { bx = task.tb.x - 40; by = task.tb.y - 46; }
+    else if (task.kind === 'trash') { bx = TRASH.x; by = TRASH.y - 44; }
+    else return;
+    ctx.fillStyle = '#534AB7';
+    ctx.beginPath(); ctx.arc(bx, by, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(String(i + 1), bx, by + 4);
+  });
+}
+
 function draw(now) {
   ctx.clearRect(0, 0, GAME.W, GAME.H);
-  // 바닥
   ctx.fillStyle = '#EFE7D8';
   ctx.fillRect(0, 0, GAME.W, GAME.H);
   ctx.strokeStyle = 'rgba(0,0,0,0.045)'; ctx.lineWidth = 1;
@@ -352,7 +456,6 @@ function draw(now) {
   ctx.fillStyle = '#D9CBB0'; ctx.fillRect(0, 0, GAME.W, 118);
   ctx.fillStyle = '#B4885A'; ctx.fillRect(0, 118, GAME.W, 18);
 
-  // 조리대
   D.stations.forEach(s => {
     if (Sprites.has('station')) {
       Sprites.drawCenter(ctx, 'station', s.x, s.y, Math.min(110, s.hw * 2), 70);
@@ -377,7 +480,8 @@ function draw(now) {
     ctx.fillText(s.menu.name, s.x, s.y - 40);
   });
 
-  // 테이블과 손님
+  drawTrash();
+
   D.tables.forEach(t => {
     if (Sprites.has('table')) {
       Sprites.drawCenter(ctx, 'table', t.x, t.y - 2, 96, 64);
@@ -390,13 +494,11 @@ function draw(now) {
     if (t.cust) {
       const c = t.cust;
       drawCharacter('cust_' + c.type.id, t.x, t.y - 42, c.type.body, 1, false, 0);
-      // 주문 말풍선
       const bx = t.x + 44, by = t.y - 72;
       ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(bx - 26, by - 16, 52, 34, 10); ctx.fill();
       ctx.strokeStyle = '#D3D1C7'; ctx.lineWidth = 1; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(bx - 14, by + 17); ctx.lineTo(bx - 20, by + 26); ctx.lineTo(bx - 5, by + 18); ctx.fill();
       drawFood(bx, by + 1, c.order, 0.85);
-      // 인내심 바
       const pct = Math.max(0, c.patience / c.max);
       ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(t.x - 22, t.y - 78, 44, 5);
       ctx.fillStyle = pct > 0.5 ? '#1D9E75' : (pct > 0.25 ? '#EF9F27' : '#E24B4A');
@@ -404,13 +506,13 @@ function draw(now) {
     }
   });
 
-  // 플레이어
   const p = D.player;
   const bob = p.moving ? Math.sin(now / 90) * 2 : 0;
   drawCharacter('player', p.x, p.y, '#534AB7', p.face, true, bob);
   if (p.carrying) drawFood(p.x, p.y - 38 + bob, p.carrying, 0.95);
 
-  // 플로팅 텍스트
+  drawQueueBadges();
+
   D.flashes.forEach(f => {
     ctx.globalAlpha = Math.min(1, f.t / 600);
     ctx.fillStyle = f.color; ctx.font = '600 15px sans-serif'; ctx.textAlign = 'center';

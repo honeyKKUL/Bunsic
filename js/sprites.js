@@ -5,6 +5,7 @@
 //   player.png            48 x 64   (발끝이 아래 중앙)
 //   table.png             96 x 64   (테이블 중심 기준)
 //   station.png          110 x 70   (조리대 중심 기준)
+//   trash.png             40 x 48   (쓰레기통 중심 기준)
 //   food_<메뉴id>.png     36 x 24   (예: food_tteok.png)
 //   cust_<손님id>.png     44 x 60   (예: cust_student.png, 발끝이 아래 중앙)
 //
@@ -15,7 +16,7 @@ const Sprites = {
 
   load() {
     const keys = [
-      'player', 'table', 'station',
+      'player', 'table', 'station', 'trash',
       ...MENUS.map(m => 'food_' + m.id),
       ...CUSTOMERS.map(c => 'cust_' + c.id)
     ];
